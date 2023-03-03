@@ -1,90 +1,69 @@
 package org.example;
 
-
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
-import java.net.Inet4Address;
 import java.net.InetAddress;
-import java.net.NetworkInterface;
+import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Scanner;
+import java.util.List;
+import java.util.concurrent.*;
 
 public class Main {
 
-    public static final String SSID = "Alejandro Arias";
+    private static final String SSID = "Alejandro Arias"; //red
+    private static final int NUM_THREADS = Runtime.getRuntime().availableProcessors(); //maximo de hilos disponibles para usar
+    private static final ExecutorService executorService = Executors.newFixedThreadPool(NUM_THREADS); //pool de hilos
+    private static final List<String> passwords = Collections.synchronizedList(new ArrayList<>()); //contraseñas
 
-    public static void main(String[] args) throws InterruptedException, IOException {
-
+    public static void main(String[] args) throws InterruptedException, ExecutionException, IOException {
         imprimirArchivo("/Users/alejandroarias/Desktop/contraseñas.txt");
-
+        tryConnect();
+        executorService.shutdown();
     }
-
-
-    /**
-     * Metodo que lee un txt linea por linea y devulve un string con la linea leida.
-     * se debe usar buffered reader para leer el txt.
-     */
 
     public static void imprimirArchivo(String rutaArchivo) throws IOException {
         BufferedReader br = new BufferedReader(new FileReader(rutaArchivo));
         String linea;
-        while ((linea = br.readLine()) != null )  {
-            if(linea.length() >= 8){
-
-                connectToWifi(SSID, linea);
-                if (estaConectadoARed(SSID)) {
-                    System.out.println("Conectado a la red Wi-Fi " + SSID + " con la contraseña " + linea);
-                    break;
-                }
-
+        while ((linea = br.readLine()) != null) {
+            if (linea.length() >= 8) {
+                passwords.add(linea);
             }
         }
         br.close();
     }
 
+    public static void tryConnect() throws InterruptedException, ExecutionException {
+        List<Future<Boolean>> futures = new ArrayList<>();
+        for (String password : passwords) {
+            Callable<Boolean> callable = () -> {
+                connectToWifi(SSID, password);
+                System.out.println("Usando: " + password);
+                return estaConectadoARed();
+            };
+            Future<Boolean> future = executorService.submit(callable);
+            futures.add(future);
+        }
 
-    public static boolean estaConectadoARed(String nombreRed) {
+        for (Future<Boolean> future : futures) {
+            if (future.get()) {
+                System.out.println("Conectado a " + SSID + " con password " + passwords.get(futures.indexOf(future)));
+                break;
+            }
+        }
+    }
+
+    public static boolean estaConectadoARed() {
         try {
-            InetAddress address = InetAddress.getByName(nombreRed);
+            InetAddress address = InetAddress.getByName(SSID);
             return address.isReachable(5000); // 5000 ms = 5 segundos
         } catch (IOException e) {
             return false;
         }
     }
 
-
-
-
-    /**
-     * Creo un txt que contendrá  las contraseñas usadas para conectarse a la red Wi-Fi.
-     */
-
-    public static void createTxt(String red) {
-        String[] command = { "touch", "/Users/alejandroarias/Desktop/"+red+".txt" };
-        try {
-            Process process = Runtime.getRuntime().exec(command);
-            process.waitFor();
-        } catch (IOException | InterruptedException e) {
-            e.printStackTrace();
-        }
-    }
-
-
-
-
-
-    /**
-     * Conecta a una red Wi-Fi.
-     *
-     * @param ssid     El nombre de la red Wi-Fi.
-     * @param password La contraseña de la red Wi-Fi.
-     * @throws IOException Si no se pudo conectar a la red Wi-Fi.
-     */
-
-
     public static void connectToWifi(String ssid, String password) throws IOException {
-        String[] command = { "/usr/sbin/networksetup", "-setairportnetwork", "en0", ssid, password };
+        String[] command = {"/usr/sbin/networksetup", "-setairportnetwork", "en0", ssid, password};
         Process process = Runtime.getRuntime().exec(command);
         try {
             process.waitFor();
@@ -94,7 +73,5 @@ public class Main {
         if (process.exitValue() != 0) {
             throw new IOException("No se pudo conectar a la red Wi-Fi " + ssid);
         }
-
     }
-
 }
